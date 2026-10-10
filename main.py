@@ -33,7 +33,7 @@ from shutil import copytree, rmtree
 import torch
 import numpy as np
 import torch.nn.functional as F
-from torch import nn, Tensor
+from torch import nn, Tensor, einsum
 from torchvision import transforms
 from torch.utils.data import DataLoader, WeightedRandomSampler
 from augment import SliceAugmentor
@@ -156,8 +156,33 @@ def setup(args) -> tuple[nn.Module, Any, Any, DataLoader, DataLoader, int]:
     net.init_weights()
     net.to(device)
 
-    lr = 0.0005
-    optimizer = torch.optim.Adam(net.parameters(), lr=lr, betas=(0.9, 0.999))
+    # optimizer
+    lr = args.lr
+    if args.optimizer == 'adam':
+        optimizer = torch.optim.Adam(
+            net.parameters(),
+            lr=lr,
+            betas=(0.9, 0.999),
+        )
+
+    elif args.optimizer == 'adamw':
+        optimizer = torch.optim.AdamW(
+            net.parameters(),
+            lr=lr,
+            betas=(0.9, 0.999),
+        )
+
+    elif args.optimizer == 'sgd':
+        optimizer = torch.optim.SGD(
+            net.parameters(),
+            lr=lr,
+            momentum=0.9,
+        )   
+
+    else: raise ValueError(f"Unknown optimizer {args.optimizer}")
+    print(f">> Using {args.optimizer} optimizer with learning rate {lr}")
+
+
 
     # Dataset part
     B: int = datasets_params[args.dataset]['B']
@@ -242,9 +267,19 @@ def runTraining(args):
     log_loss_val: Tensor = torch.zeros((args.epochs, len(val_loader)))
     log_dice_val: Tensor = torch.zeros((args.epochs, len(val_loader.dataset), K))
 
+    # Per patient 3D Dice: overlap counts summed over all slices of a volume,
+    # the same quantity metrics_3d.py reports, so --select 3d picks the epoch
+    # on the metric we evaluate with instead of the per slice 2D Dice.
+    log_dice3d_val: Tensor = torch.zeros((args.epochs, K))
+
+    scheduler = None
+    if args.scheduler == 'cosine':
+        scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=args.epochs)
+
     best_dice: float = 0
 
     for e in range(args.epochs):
+        volumes: dict[str, Tensor] = {}
         for m in ['train', 'val']:
             match m:
                 case 'train':
@@ -293,6 +328,13 @@ def runTraining(args):
                         opt.step()
 
                     if m == 'val':
+                        counts = torch.stack([einsum("bkwh,bkwh->bk", pred_seg, gt),
+                                              einsum("bkwh->bk", pred_seg),
+                                              einsum("bkwh->bk", gt)], dim=1).float().cpu()
+                        for stem, c in zip(data['stems'], counts):
+                            patient = stem.rsplit('_', 1)[0]
+                            volumes[patient] = volumes.get(patient, 0) + c
+
                         with warnings.catch_warnings():
                             warnings.filterwarnings('ignore', category=UserWarning)
                             predicted_class: Tensor = probs2class(pred_probs)
@@ -316,9 +358,18 @@ def runTraining(args):
         np.save(args.dest / "loss_val.npy", log_loss_val)
         np.save(args.dest / "dice_val.npy", log_dice_val)
 
-        current_dice: float = log_dice_val[e, :, 1:].mean().item()
+        inter, pred_size, gt_size = torch.stack(list(volumes.values())).unbind(dim=1)
+        dice3d = torch.where(pred_size + gt_size > 0, 2 * inter / (pred_size + gt_size), 1.0)
+        log_dice3d_val[e] = dice3d.mean(dim=0)
+        np.save(args.dest / "dice3d_val.npy", log_dice3d_val)
+
+        if scheduler:
+            scheduler.step()
+
+        current_dice: float = (log_dice3d_val[e, 1:].mean().item() if args.select == '3d'
+                               else log_dice_val[e, :, 1:].mean().item())
         if current_dice > best_dice:
-            message = f">>> Improved dice at epoch {e}: {best_dice:05.3f}->{current_dice:05.3f} DSC"
+            message = f">>> Improved {args.select} dice at epoch {e}: {best_dice:05.3f}->{current_dice:05.3f} DSC"
             print(message)
             best_dice = current_dice
             with open(args.dest / "best_epoch.txt", 'w') as f:
@@ -372,6 +423,16 @@ def main():
 
     parser.add_argument('--network', default=None, choices=['enet', 'unet'],
                         help="Override the dataset's default network (ENet for SEGTHOR).")
+    parser.add_argument('--optimizer', default='adam', choices=['adam','adamw','sgd'],
+                        help='Optimizer to use for training')
+    parser.add_argument('--lr', default=0.0005, type=float,
+                        help='Learning rate')
+    parser.add_argument('--scheduler', default='none', choices=['none', 'cosine'],
+                        help="none keeps the learning rate fixed (baseline); cosine decays it "
+                             "to zero over the epochs.")
+    parser.add_argument('--select', default='2d', choices=['2d', '3d'],
+                        help="Metric that picks the best epoch: 2d = mean per slice Dice "
+                             "(baseline), 3d = mean per patient Dice, as reported.")
     parser.add_argument('--kernels', default=None, type=int,
                         help="Base channel width of the network. Defaults to the dataset "
                              "setting (8 for SEGTHOR).")

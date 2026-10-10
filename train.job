@@ -7,8 +7,10 @@
 #   sbatch -J ctx3_s1   train.job zscore   1 uniform ce noaug 3
 #   sbatch -J unet_s1   train.job zscore   1 uniform ce noaug 1 unet
 #   sbatch -J unet16_s1 train.job zscore   1 uniform ce noaug 1 unet 16
+#   sbatch -J cos_s1    train.job zscore   1 uniform ce aug   1 unet 16 adam 0.0005 cosine 3d
 #
 # Arguments: <variant> <seed> [sampling] [loss] [augment] [context] [network] [kernels]
+#            [optimizer] [lr] [scheduler] [select]
 #   variant  which sliced directory to train on (see slice.job)
 #   seed     1, 2 or 3. Always run all three: a single run is not evidence.
 #   sampling uniform (default) or oversample
@@ -17,8 +19,13 @@
 #   context  1 (default, plain 2D), 3 or 5 neighbouring slices as input (2.5D)
 #   network  enet (default, the baseline network) or unet
 #   kernels  base channel width, 8 (default, as the baseline) or e.g. 16
+#   optimizer adam (default), adamw or sgd
+#   lr       learning rate, 0.0005 (default)
+#   scheduler none (default, fixed learning rate) or cosine
+#   select   2d (default, per slice Dice) or 3d (per patient Dice) picks the best epoch
 #
-# Results land in results/<variant>[_oversample][_<loss>][_unet][_k<N>][_ctx<N>][_aug]_seed<seed>/, so every run is
+# Results land in results/<variant>[_oversample][_<loss>][_unet][_k<N>][_ctx<N>][_aug]
+# [_<optimizer>][_lr<lr>][_cosine][_sel3d]_seed<seed>/, so every run is
 # self identifying and runs never overwrite each other.
 
 #SBATCH --job-name=ai4mi_train
@@ -100,6 +107,24 @@ case "${KERNELS}" in
     ''|*[!0-9]*) echo "ERROR: kernels must be a number, got '${KERNELS}'." >&2; exit 1 ;;
 esac
 
+OPTIMIZER="${9:-adam}"
+LR="${10:-0.0005}"
+SCHEDULER="${11:-none}"
+SELECT="${12:-2d}"
+
+case "${OPTIMIZER}" in
+    adam|adamw|sgd) ;;
+    *) echo "ERROR: optimizer must be adam, adamw or sgd, got '${OPTIMIZER}'." >&2; exit 1 ;;
+esac
+case "${SCHEDULER}" in
+    none|cosine) ;;
+    *) echo "ERROR: scheduler must be none or cosine, got '${SCHEDULER}'." >&2; exit 1 ;;
+esac
+case "${SELECT}" in
+    2d|3d) ;;
+    *) echo "ERROR: select must be 2d or 3d, got '${SELECT}'." >&2; exit 1 ;;
+esac
+
 
 SLICE_DIR="data/SEGTHOR_${VARIANT}"
 
@@ -113,6 +138,10 @@ fi
 [ "${KERNELS}" != 8 ] && RESULT_DIR="${RESULT_DIR}_k${KERNELS}"
 [ "${CONTEXT}" != 1 ] && RESULT_DIR="${RESULT_DIR}_ctx${CONTEXT}"
 [ "${AUGMENT}" = aug ] && RESULT_DIR="${RESULT_DIR}_aug"
+[ "${OPTIMIZER}" != adam ] && RESULT_DIR="${RESULT_DIR}_${OPTIMIZER}"
+[ "${LR}" != 0.0005 ] && RESULT_DIR="${RESULT_DIR}_lr${LR}"
+[ "${SCHEDULER}" != none ] && RESULT_DIR="${RESULT_DIR}_${SCHEDULER}"
+[ "${SELECT}" != 2d ] && RESULT_DIR="${RESULT_DIR}_sel${SELECT}"
 RESULT_DIR="${RESULT_DIR}_seed${SEED}"
 
 echo "=== Job $SLURM_JOB_ID: ${VARIANT}, sampling=${SAMPLING}, loss=${LOSS}, seed ${SEED}, $(date) ==="
@@ -141,6 +170,10 @@ mkdir -p "${RESULT_DIR}"
     echo "context:      ${CONTEXT}"
     echo "network:      ${NETWORK}"
     echo "kernels:      ${KERNELS}"
+    echo "optimizer:    ${OPTIMIZER}"
+    echo "lr:           ${LR}"
+    echo "scheduler:    ${SCHEDULER}"
+    echo "select:       ${SELECT}"
     echo "slice_dir:    ${SLICE_DIR}"
     echo "epochs:       ${EPOCHS}"
     echo "train_slices: $(ls ${SLICE_DIR}/train/img | wc -l)"
@@ -165,6 +198,10 @@ python -u main.py \
     --context_slices "${CONTEXT}" \
     --network "${NETWORK}" \
     --kernels "${KERNELS}" \
+    --optimizer "${OPTIMIZER}" \
+    --lr "${LR}" \
+    --scheduler "${SCHEDULER}" \
+    --select "${SELECT}" \
     --track_co2 \
     --gpu
 
