@@ -328,7 +328,7 @@ def runTraining(args):
                         opt.step()
 
                     if m == 'val':
-                        counts = torch.stack([einsum("bkwh,bkwh->bk", pred_seg, gt),
+                        counts = torch.stack([einsum("bkwh->bk", pred_seg * gt),
                                               einsum("bkwh->bk", pred_seg),
                                               einsum("bkwh->bk", gt)], dim=1).float().cpu()
                         for stem, c in zip(data['stems'], counts):
