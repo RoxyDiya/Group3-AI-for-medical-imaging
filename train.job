@@ -57,9 +57,9 @@ SAMPLING="${3:-uniform}"
 LOSS="${4:-ce}"
 
 case "${VARIANT}" in
-    baseline|zscore|zscore_skip) ;;
+    baseline|zscore|zscore_skip|multiwindow) ;;
     *)
-        echo "ERROR: unknown variant '${VARIANT}'. Use baseline, zscore or zscore_skip." >&2
+        echo "ERROR: unknown variant '${VARIANT}'. Use baseline, zscore, zscore_skip or multiwindow." >&2
         exit 1
         ;;
 esac
