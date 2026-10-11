@@ -1,0 +1,14 @@
+variant:      zscore
+network:      unet3d
+seed:         3
+loss:         ce
+augment:      noaug
+kernels:      16
+patch:        48 128 128
+epochs:       180
+slice_dir:    data/SEGTHOR_zscore
+train_slices: 6027
+val_slices:   1393
+git_commit:   c3b1885
+slurm_job:    27891549
+started:      Sun Oct 11 18:17:08 CEST 2026
