@@ -10,7 +10,7 @@
 #   sbatch -J cos_s1    train.job zscore   1 uniform ce aug   1 unet 16 adam 0.0005 cosine 3d
 #
 # Arguments: <variant> <seed> [sampling] [loss] [augment] [context] [network] [kernels]
-#            [optimizer] [lr] [scheduler] [select]
+#            [optimizer] [lr] [scheduler] [select] [position]
 #   variant  which sliced directory to train on (see slice.job)
 #   seed     1, 2 or 3. Always run all three: a single run is not evidence.
 #   sampling uniform (default) or oversample
@@ -23,9 +23,10 @@
 #   lr       learning rate, 0.0005 (default)
 #   scheduler none (default, fixed learning rate) or cosine
 #   select   2d (default, per slice Dice) or 3d (per patient Dice) picks the best epoch
+#   position none (default) or xyz: add x, y and relative slice height as input channels
 #
 # Results land in results/<variant>[_oversample][_<loss>][_unet][_k<N>][_ctx<N>][_aug]
-# [_<optimizer>][_lr<lr>][_cosine][_sel3d]_seed<seed>/, so every run is
+# [_<optimizer>][_lr<lr>][_cosine][_sel3d][_pos]_seed<seed>/, so every run is
 # self identifying and runs never overwrite each other.
 
 #SBATCH --job-name=ai4mi_train
@@ -111,6 +112,7 @@ OPTIMIZER="${9:-adam}"
 LR="${10:-0.0005}"
 SCHEDULER="${11:-none}"
 SELECT="${12:-2d}"
+POSITION="${13:-none}"
 
 case "${OPTIMIZER}" in
     adam|adamw|sgd) ;;
@@ -123,6 +125,11 @@ esac
 case "${SELECT}" in
     2d|3d) ;;
     *) echo "ERROR: select must be 2d or 3d, got '${SELECT}'." >&2; exit 1 ;;
+esac
+case "${POSITION}" in
+    none) POS_FLAG="" ;;
+    xyz)  POS_FLAG="--position" ;;
+    *) echo "ERROR: position must be none or xyz, got '${POSITION}'." >&2; exit 1 ;;
 esac
 
 
@@ -142,6 +149,7 @@ fi
 [ "${LR}" != 0.0005 ] && RESULT_DIR="${RESULT_DIR}_lr${LR}"
 [ "${SCHEDULER}" != none ] && RESULT_DIR="${RESULT_DIR}_${SCHEDULER}"
 [ "${SELECT}" != 2d ] && RESULT_DIR="${RESULT_DIR}_sel${SELECT}"
+[ "${POSITION}" = xyz ] && RESULT_DIR="${RESULT_DIR}_pos"
 RESULT_DIR="${RESULT_DIR}_seed${SEED}"
 
 echo "=== Job $SLURM_JOB_ID: ${VARIANT}, sampling=${SAMPLING}, loss=${LOSS}, seed ${SEED}, $(date) ==="
@@ -174,6 +182,7 @@ mkdir -p "${RESULT_DIR}"
     echo "lr:           ${LR}"
     echo "scheduler:    ${SCHEDULER}"
     echo "select:       ${SELECT}"
+    echo "position:     ${POSITION}"
     echo "slice_dir:    ${SLICE_DIR}"
     echo "epochs:       ${EPOCHS}"
     echo "train_slices: $(ls ${SLICE_DIR}/train/img | wc -l)"
@@ -202,6 +211,7 @@ python -u main.py \
     --lr "${LR}" \
     --scheduler "${SCHEDULER}" \
     --select "${SELECT}" \
+    ${POS_FLAG} \
     --track_co2 \
     --gpu
 
