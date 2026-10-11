@@ -19,6 +19,8 @@ def main():
     parser.add_argument('--subset', default='test', choices=['train', 'val', 'test'])
     parser.add_argument('--dest', type=Path, required=True)
     parser.add_argument('--context_slices', default=1, type=int, choices=[1, 3, 5])
+    parser.add_argument('--position', action='store_true',
+                        help="The model was trained with --position")
     parser.add_argument('--gpu', action='store_true')
     args = parser.parse_args()
 
@@ -30,7 +32,8 @@ def main():
     data = SliceDataset(args.subset, args.data_dir,
                         img_transform=img_transform,
                         gt_transform=partial(gt_transform, K),
-                        context_slices=args.context_slices)
+                        context_slices=args.context_slices,
+                        position=args.position)
     loader = DataLoader(data, batch_size=8, num_workers=4, shuffle=False)
 
     with torch.no_grad(), warnings.catch_warnings():
