@@ -14,7 +14,7 @@
 #   variant  which sliced directory to train on (see slice.job)
 #   seed     1, 2 or 3. Always run all three: a single run is not evidence.
 #   sampling uniform (default) or oversample
-#   loss     ce (default), wce, focal or dicece
+#   loss     ce (default), wce, focal, dicece or cldice
 #   augment  noaug (default) or aug
 #   context  1 (default, plain 2D), 3 or 5 neighbouring slices as input (2.5D)
 #   network  enet (default, the baseline network) or unet
@@ -74,9 +74,9 @@ case "${SAMPLING}" in
 esac
 
 case "${LOSS}" in
-    ce|wce|focal|dicece) ;;
+    ce|wce|focal|dicece|cldice) ;;
     *)
-        echo "ERROR: loss must be ce, wce, focal or dicece, got '${LOSS}'." >&2
+        echo "ERROR: loss must be ce, wce, focal, dicece or cldice, got '${LOSS}'." >&2
         exit 1
         ;;
 esac

@@ -54,7 +54,7 @@ from utils import (Dcm,
                    dice_coef,
                    save_images)
 
-from losses import (CrossEntropy, DiceCE)
+from losses import (CrossEntropy, DiceCE, CEclDice)
 
 # Worker initialization function for DataLoader reproducibility
 def worker_init_fn(worker_id):
@@ -266,6 +266,8 @@ def runTraining(args):
             loss_fn = CrossEntropy(idk=idk, gamma=2)
         case 'dicece':
             loss_fn = DiceCE(idk=idk)
+        case 'cldice':
+            loss_fn = CEclDice(idk=idk)
 
     # Notice one has the length of the _loader_, and the other one of the _dataset_
     log_loss_tra: Tensor = torch.zeros((args.epochs, len(train_loader)))
@@ -396,9 +398,10 @@ def main():
     parser.add_argument('--epochs', default=20, type=int)
     parser.add_argument('--dataset', default='TOY2', choices=datasets_params.keys())
     parser.add_argument('--mode', default='full', choices=['partial', 'full'])
-    parser.add_argument('--loss', default='ce', choices=['ce', 'wce', 'focal', 'dicece'],
+    parser.add_argument('--loss', default='ce', choices=['ce', 'wce', 'focal', 'dicece', 'cldice'],
                         help="ce is the baseline. wce weights classes by training frequency, "
-                             "focal uses gamma 2, dicece adds soft Dice to ce.")
+                             "focal uses gamma 2, dicece adds soft Dice to ce, cldice adds a "
+                             "soft centreline Dice on esophagus, trachea and aorta to ce.")
     parser.add_argument('--dest', type=Path, required=True,
                         help="Destination directory to save the results (predictions and weights).")
 
