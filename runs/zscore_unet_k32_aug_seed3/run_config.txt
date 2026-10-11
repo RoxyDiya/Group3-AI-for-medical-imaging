@@ -1,0 +1,19 @@
+variant:      zscore
+sampling:     uniform
+seed:         3
+loss:         ce
+augment:      aug
+context:      1
+network:      unet
+kernels:      32
+optimizer:    adam
+lr:           0.0005
+scheduler:    none
+select:       2d
+slice_dir:    data/SEGTHOR_zscore
+epochs:       50
+train_slices: 6027
+val_slices:   1393
+git_commit:   3598d32
+slurm_job:    27875933
+started:      Sun Oct 11 11:12:05 CEST 2026
