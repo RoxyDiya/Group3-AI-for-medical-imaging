@@ -155,7 +155,8 @@ def setup(args) -> tuple[nn.Module, Any, Any, DataLoader, DataLoader, int]:
     # channels per slice image (3 for the multi-window variant, 1 otherwise)
     first_img = next(((args.data_dir or Path("data") / args.dataset) / 'train' / 'img').glob('*.png'))
     channels = len(Image.open(first_img).getbands())
-    net = net_cls(args.context_slices * channels, K, kernels=kernels, factor=factor)
+    in_dim = args.context_slices * channels + (3 if args.position else 0)  # + x, y, z position channels
+    net = net_cls(in_dim, K, kernels=kernels, factor=factor)
     net.init_weights()
     net.to(device)
 
@@ -199,7 +200,8 @@ def setup(args) -> tuple[nn.Module, Any, Any, DataLoader, DataLoader, int]:
                              gt_transform=partial(gt_transform, K),
                              augment=args.augment,
                              debug=args.debug,
-                             context_slices=args.context_slices)
+                             context_slices=args.context_slices,
+                             position=args.position)
     if args.sampling == "oversample":
         train_loader = DataLoader(train_set,
                                   batch_size=B,
@@ -218,7 +220,8 @@ def setup(args) -> tuple[nn.Module, Any, Any, DataLoader, DataLoader, int]:
                            img_transform=img_transform,
                            gt_transform=partial(gt_transform, K),
                            debug=args.debug,
-                           context_slices=args.context_slices)
+                           context_slices=args.context_slices,
+                           position=args.position)
     val_loader = DataLoader(val_set,
                             batch_size=B,
                             num_workers=5,
@@ -442,6 +445,8 @@ def main():
     parser.add_argument('--context_slices', default=1, type=int, choices=[1, 3, 5],
                         help="Number of neighbouring slices stacked as input channels. "
                              "1 = plain 2D (baseline), 3 or 5 = 2.5D.")
+    parser.add_argument('--position', action='store_true',
+                        help="Add x, y and relative slice height (z) as three extra input channels.")
 
     args = parser.parse_args()
 
