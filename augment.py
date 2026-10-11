@@ -105,7 +105,11 @@ def _apply_elastic(img: Image.Image, gt: Image.Image, cfg: AugmentConfig):
 
     # order=1 for the image (smooth), order=0 for the label (never average
     # class indices).
-    img_out = map_coordinates(img_a, coords, order=1, mode="constant", cval=0)
+    if img_a.ndim == 3:  # multi-window slice: the same deformation for every channel
+        img_out = np.stack([map_coordinates(img_a[..., c], coords, order=1, mode="constant", cval=0)
+                            for c in range(img_a.shape[2])], axis=-1)
+    else:
+        img_out = map_coordinates(img_a, coords, order=1, mode="constant", cval=0)
     gt_out = map_coordinates(gt_a, coords, order=0, mode="constant", cval=0)
 
     return (Image.fromarray(img_out.astype(img_a.dtype)),

@@ -50,6 +50,21 @@ def norm_arr(img: np.ndarray) -> np.ndarray:
 
     return res.astype(np.uint8)
 
+# Clinical CT windows (HU), one per channel: a radiologist switches between
+# these instead of reading one compromise contrast. Our intensity analysis
+# showed a single min-max image leaves soft tissue only 2 to 27 grey levels.
+CT_WINDOWS = [(-160.0, 240.0),    # mediastinal: heart, aorta, esophagus walls
+              (-1000.0, 0.0),     # lung / air: trachea, air in the esophagus
+              (-1000.0, 1000.0)]  # wide: overall anatomy, bone landmarks
+
+
+def norm_arr_multiwindow(img: np.ndarray) -> np.ndarray:
+    """Map the CT to one 0-255 channel per clinical window, last axis."""
+    casted = img.astype(np.float32)
+    channels = [(np.clip(casted, lo, hi) - lo) / (hi - lo) * 255.0 for lo, hi in CT_WINDOWS]
+    return np.stack(channels, axis=-1).astype(np.uint8)
+
+
 def norm_arr_clip_zscore(img: np.ndarray,
                          hu_min: float = -986.0,
                          hu_max: float = 271.0) -> np.ndarray:
@@ -131,6 +146,8 @@ def slice_patient(id_: str, dest_path: Path, source_path: Path, shape: tuple[int
     norm_ct: np.ndarray
     if norm_mode == "zscore":
         norm_ct = norm_arr_clip_zscore(ct, hu_window[0], hu_window[1])
+    elif norm_mode == "multiwindow":
+        norm_ct = norm_arr_multiwindow(ct)
     else:
         norm_ct = norm_arr(ct)
 
@@ -140,7 +157,7 @@ def slice_patient(id_: str, dest_path: Path, source_path: Path, shape: tuple[int
     for idz in range(z):
         img_slice = resize_(to_slice_ct[:, :, idz], shape).astype(np.uint8)
         gt_slice = resize_(to_slice_gt[:, :, idz], shape, order=0).astype(np.uint8)
-        assert img_slice.shape == gt_slice.shape
+        assert img_slice.shape[:2] == gt_slice.shape
         gt_slice *= 63
         # Train only on slices containing at least one organ (SegTHOR paper,
         # sec. 4.1). Never skip in test_mode: stitching needs every slice.
@@ -248,9 +265,10 @@ def get_args() -> argparse.Namespace:
     parser.add_argument('--process', '-p', type=int, default=1,
                         help="The number of cores to use for processing")
     parser.add_argument('--norm_mode', type=str, default='minmax',
-                        choices=['minmax', 'zscore'],
+                        choices=['minmax', 'zscore', 'multiwindow'],
                         help="minmax = original per-volume min-max; "
-                             "zscore = clip to HU window then z-score")
+                             "zscore = clip to HU window then z-score; "
+                             "multiwindow = one channel per clinical CT window")
     parser.add_argument('--hu_window', type=float, nargs=2, default=[-986.0, 271.0],
                         metavar=('MIN', 'MAX'))
     parser.add_argument('--splits', nargs="+", default=["train", "val"],

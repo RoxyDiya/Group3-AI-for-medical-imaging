@@ -3,6 +3,7 @@
 #
 #   sbatch slice.job baseline
 #   sbatch slice.job zscore
+#   sbatch slice.job multiwindow
 #
 # Each variant writes to its own directory, so several can exist side by side
 # and be trained at the same time without overwriting each other.
@@ -39,7 +40,7 @@ source $HOME/ai4mi_venv/bin/activate
 
 cd "${SLURM_SUBMIT_DIR:-$HOME/Group3-AI-for-medical-imaging}"
 
-VARIANT="${1:?Usage: sbatch slice.job <baseline|zscore|zscore_skip>}"
+VARIANT="${1:?Usage: sbatch slice.job <baseline|zscore|multiwindow|zscore_skip>}"
 
 case "${VARIANT}" in
     baseline)
@@ -53,13 +54,18 @@ case "${VARIANT}" in
         # deleting the empty slices.
         SLICE_FLAGS="--norm_mode zscore"
         ;;
+    multiwindow)
+        # Three clinical CT windows (mediastinal, lung, wide) as the three
+        # channels of each slice, instead of one compromise contrast.
+        SLICE_FLAGS="--norm_mode multiwindow"
+        ;;
     zscore_skip)
         # The part 1 configuration: z-score AND drop organ-free training
         # slices. Kept so the two approaches to class balance can be compared.
         SLICE_FLAGS="--norm_mode zscore --skip_empty"
         ;;
     *)
-        echo "ERROR: unknown variant '${VARIANT}'. Use baseline, zscore or zscore_skip." >&2
+        echo "ERROR: unknown variant '${VARIANT}'. Use baseline, zscore, multiwindow or zscore_skip." >&2
         exit 1
         ;;
 esac
