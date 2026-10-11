@@ -22,6 +22,7 @@
 # OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 # SOFTWARE.
 
+import os
 import pickle
 import random
 import argparse
@@ -59,10 +60,17 @@ CT_WINDOWS = [(-160.0, 240.0),    # mediastinal: heart, aorta, esophagus walls
 
 
 def norm_arr_multiwindow(img: np.ndarray) -> np.ndarray:
-    """Map the CT to one 0-255 channel per clinical window, last axis."""
+    """Map the CT to one 0-255 channel per clinical window, last axis.
+
+    Each window goes to uint8 straight away: keeping all three in float32
+    used about 1.5x the memory of zscore per worker, which stalled the
+    parallel slicing once many patients were processed at the same time.
+    """
     casted = img.astype(np.float32)
-    channels = [(np.clip(casted, lo, hi) - lo) / (hi - lo) * 255.0 for lo, hi in CT_WINDOWS]
-    return np.stack(channels, axis=-1).astype(np.uint8)
+    res = np.empty(img.shape + (len(CT_WINDOWS),), dtype=np.uint8)
+    for c, (lo, hi) in enumerate(CT_WINDOWS):
+        res[..., c] = (np.clip(casted, lo, hi) - lo) / (hi - lo) * 255.0
+    return res
 
 
 def norm_arr_clip_zscore(img: np.ndarray,
@@ -241,7 +249,10 @@ def main(args: argparse.Namespace):
             case 1:
                 resolutions = list(map(pfun, iterator))
             case -1:
-                resolutions = Pool().map(pfun, iterator)
+                # the CPUs this job may use, not every core of the node: on a
+                # shared node Pool() would start one worker per node core
+                cores = len(os.sched_getaffinity(0)) if hasattr(os, "sched_getaffinity") else os.cpu_count()
+                resolutions = Pool(cores).map(pfun, iterator)
             case _ as p:
                 resolutions = Pool(p).map(pfun, iterator)
 
