@@ -55,7 +55,7 @@ def make_dataset(root, subset) -> list[tuple[Path, Path | None]]:
 class SliceDataset(Dataset):
     def __init__(self, subset, root_dir, img_transform=None,
                  gt_transform=None, augment=False, equalize=False, debug=False,
-                 context_slices=1):
+                 context_slices=1, position=False):
         self.root_dir: str = root_dir
         self.img_transform: Callable = img_transform
         self.gt_transform: Callable = gt_transform
@@ -69,6 +69,19 @@ class SliceDataset(Dataset):
         self.test_mode: bool = subset == 'test'
 
         self.files = make_dataset(root_dir, subset)
+
+        # Position channels: a 2D network cannot tell at which height of the
+        # body a slice lies, and our error analysis showed the esophagus fails
+        # mostly in its lower half. x and y give the pixel position in the
+        # image, z the slice's relative height within its own scan.
+        self.position: bool = position
+        # highest slice index per patient, not the file count, so the height
+        # stays right when a variant leaves out slices (e.g. --skip_empty)
+        self.last_slice: dict[str, int] = {}
+        for img_path, _ in self.files:
+            patient, idx = img_path.stem.rsplit('_', 1)
+            self.last_slice[patient] = max(self.last_slice.get(patient, 0), int(idx))
+
         if debug:
             self.files = self.files[:10]
 
@@ -113,6 +126,16 @@ class SliceDataset(Dataset):
             slices_pil, gt_pil = augmented, gt_out
 
         img: Tensor = torch.cat([self.img_transform(s) for s in slices_pil], dim=0)
+
+        if self.position:
+            # added after augmentation: they describe where a pixel is in the
+            # image and in the scan, which the augmentation does not move
+            patient, idx = img_path.stem.rsplit('_', 1)
+            _, W, H = img.shape
+            x = torch.linspace(0, 1, W).view(W, 1).expand(W, H)
+            y = torch.linspace(0, 1, H).view(1, H).expand(W, H)
+            z = torch.full((W, H), int(idx) / max(self.last_slice[patient], 1))
+            img = torch.cat([img, torch.stack([x, y, z])], dim=0)
 
         data_dict = {"images": img,
                      "stems": img_path.stem}
