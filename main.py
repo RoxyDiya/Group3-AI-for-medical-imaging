@@ -70,8 +70,8 @@ datasets_params["SEGTHOR"] = {'K': 5, 'net': ENet, 'B': 8, 'kernels': 8, 'factor
 datasets_params["SEGTHOR_CLEAN"] = {'K': 5, 'net': ENet, 'B': 8, 'kernels': 8, 'factor': 2}
 
 def img_transform(img):
-        img = img.convert('L')
-        img = np.array(img)[np.newaxis, ...]
+        # multi-window slices are stored as RGB, one CT window per channel
+        img = np.array(img).transpose(2, 0, 1) if img.mode == 'RGB' else np.array(img.convert('L'))[np.newaxis, ...]
         img = img / 255  # max <= 1
         img = torch.tensor(img, dtype=torch.float32)
         return img
@@ -151,8 +151,11 @@ def setup(args) -> tuple[nn.Module, Any, Any, DataLoader, DataLoader, int]:
     elif args.network == 'unet':
         net_cls = UNet
 
-    # one input channel per stacked slice (1 for 2D, 3 or 5 for 2.5D)
-    net = net_cls(args.context_slices, K, kernels=kernels, factor=factor)
+    # one input channel per stacked slice (1 for 2D, 3 or 5 for 2.5D), times the
+    # channels per slice image (3 for the multi-window variant, 1 otherwise)
+    first_img = next(((args.data_dir or Path("data") / args.dataset) / 'train' / 'img').glob('*.png'))
+    channels = len(Image.open(first_img).getbands())
+    net = net_cls(args.context_slices * channels, K, kernels=kernels, factor=factor)
     net.init_weights()
     net.to(device)
 
